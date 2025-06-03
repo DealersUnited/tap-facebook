@@ -95,44 +95,46 @@ class FacebookStream(RESTStream):
         return params
 
     def validate_response(self, response: requests.Response) -> None:
-        """Validate HTTP response.
+        """Validate the API response, skipping gracefully on certain permission errors."""
+        full_path = response.request.url  # use the original request URL for better context
 
-        Raises:
-            FatalAPIError: If the request is not retriable.
-            RetriableAPIError: If the request is retriable.
-        """
-        full_path = urlparse(response.url).path
+        # Handle tolerated HTTP errors
         if response.status_code in self.tolerated_http_errors:
-            msg = (
-                f"{response.status_code} Tolerated Status Code "
-                f"(Reason: {response.reason}) for path: {full_path}"
-            )
-            self.logger.info(msg)
+            self.logger.info(f"Tolerated {response.status_code} for {full_path}")
             return
 
+        # Handle client errors (4xx)
         if HTTPStatus.BAD_REQUEST <= response.status_code < HTTPStatus.INTERNAL_SERVER_ERROR:
-            msg = (
-                f"{response.status_code} Client Error: "
-                f"{response.content!s} (Reason: {response.reason}) for path: {full_path}"
-            )
-            # Retry on reaching rate limit
-            if (
-                response.status_code == HTTPStatus.BAD_REQUEST
-                and "too many calls" in str(response.content).lower()
-            ) or (
-                response.status_code == HTTPStatus.BAD_REQUEST
-                and "request limit reached" in str(response.content).lower()
-            ):
-                raise RetriableAPIError(msg, response)
+            msg = f"{response.status_code} Client Error: {response.content!s} for {full_path}"
 
+            try:
+                error_data = response.json().get("error", {})
+                error_type = error_data.get("type")
+                error_code = error_data.get("code")
+                error_message = error_data.get("message")
+
+                # If this is an OAuthException (missing permissions), skip gracefully
+                if error_type == "OAuthException" and error_code == 200:
+                    self.logger.warning(
+                        f"Skipping stream {self.name} due to missing permissions: {error_message} "
+                        f"(status {response.status_code}, path: {full_path})"
+                    )
+                    # Gracefully return without raising an error
+                    # This effectively skips this record/stream
+                    return
+            except Exception as parse_exc:
+                self.logger.warning(
+                    f"Failed to parse error details from response JSON: {parse_exc}"
+                )
+
+            # If it's not a known permission error, raise a fatal error
             raise FatalAPIError(msg)
 
+        # Handle server errors (5xx)
         if response.status_code >= HTTPStatus.INTERNAL_SERVER_ERROR:
-            msg = (
-                f"{response.status_code} Server Error: "
-                f"{response.content!s} (Reason: {response.reason}) for path: {full_path}"
-            )
-            raise RetriableAPIError(msg, response)
+            msg = f"{response.status_code} Server Error: {response.content!s} for {full_path}"
+            raise RetriableAPIError(msg)
+
 
     def backoff_max_tries(self) -> int:
         """The number of attempts before giving up when retrying requests.
