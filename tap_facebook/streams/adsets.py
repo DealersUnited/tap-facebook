@@ -135,6 +135,7 @@ class AdsetsStream(IncrementalFacebookStream):
                 Property("product_catalog_id", IntegerType),
                 Property("retention_days", StringType),
                 Property("application_type", StringType),
+            ),
         ),
         Property("id", StringType),
         Property("account_id", StringType),
@@ -309,5 +310,21 @@ class AdsetsStream(IncrementalFacebookStream):
         Property("lifetime_min_spend_target", StringType),
         Property("lifetime_spend_cap", StringType),
     ).to_dict()
+
+    def post_process(
+            self,
+            row: dict,
+            context: dict | None = None,  # Replace Context with dict
+    ) -> dict | None:
+        # Cast promoted_object.custom_conversion_id to int if needed
+        promoted_object = row.get("promoted_object")
+        if promoted_object and "custom_conversion_id" in promoted_object:
+            value = promoted_object["custom_conversion_id"]
+            if value is not None:
+                try:
+                    promoted_object["custom_conversion_id"] = int(value)
+                except (ValueError, TypeError):
+                    promoted_object["custom_conversion_id"] = None
+        return row
 
     tap_stream_id = "adsets"

@@ -35,8 +35,9 @@ class AdAccountsStream(FacebookStream):
 
     @property
     def url_base(self) -> str:
-        version = self.config.get("api_version", "")
-        return f"https://graph.facebook.com/{version}/me"
+        version: str = self.config["api_version"]
+        account_id: str = self.config["account_id"]
+        return f"https://graph.facebook.com/{version}/act_{account_id}"
 
     columns = [  # noqa: RUF012
         "account_id",
