@@ -219,14 +219,20 @@ class AdAccountsStream(FacebookStream):
         if "created_time" not in row:
             self.logger.warning(f"Skipping record without created_time: {row.get('id')}")
             return None
-        row["amount_spent"] = int(row["amount_spent"]) if "amount_spent" in row else None
-        row["balance"] = int(row["balance"]) if "balance" in row else None
-        row["min_campaign_group_spend_cap"] = (
-            int(row["min_campaign_group_spend_cap"])
-            if "min_campaign_group_spend_cap" in row
-            else None
-        )
-        row["spend_cap"] = int(row["spend_cap"]) if "spend_cap" in row else None
+
+        # Safely cast to int, fallback to None
+        def safe_int(value):
+            try:
+                return int(float(value))  # Handles floats like 9.5 -> 9
+            except (ValueError, TypeError):
+                return None
+
+        for field in ["amount_spent", "balance", "min_campaign_group_spend_cap", "spend_cap"]:
+            if field in row:
+                row[field] = safe_int(row[field])
+            else:
+                row[field] = None
+
         return row
 
     def get_url_params(
